@@ -913,6 +913,7 @@ pub struct Config {
 
     /// Combined provider map (defaults plus user-defined providers).
     pub model_providers: HashMap<String, ModelProviderInfo>,
+    pub model_capabilities: HashMap<String, codex_protocol::model_capabilities::ModelCapabilities>,
 
     /// Maximum total bytes of project instruction content across all selected environments.
     pub project_doc_max_bytes: usize,
@@ -1684,6 +1685,7 @@ impl Config {
             }),
             personality: self.personality,
             model_catalog: self.model_catalog.clone(),
+            model_capabilities: self.model_capabilities.clone(),
         }
     }
 
@@ -3814,14 +3816,14 @@ impl Config {
             .clone()
             .filter(|value| !value.is_empty());
 
-        let model_providers =
-            merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
-                .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
-
         let model_provider_id = config_layer_stack.required_model_provider().map(str::to_string)
             .or(model_provider)
             .or(cfg.model_provider)
             .unwrap_or_else(|| "openai".to_string());
+        let custom_model_provider = cfg.model_providers.contains_key(&model_provider_id);
+        let model_providers =
+            merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
+                .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
         let model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
@@ -4076,7 +4078,16 @@ impl Config {
         let review_model = override_review_model.or(cfg.review_model);
 
         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
-        let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
+        let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?.or_else(|| {
+            (custom_model_provider
+                && !model_provider.is_amazon_bedrock()
+                && !cfg.model_capabilities.is_empty())
+            .then(|| {
+                codex_models_manager::model_info::catalog_from_capabilities(
+                    &cfg.model_capabilities,
+                )
+            })
+        });
 
         let log_dir = cfg
             .log_dir
@@ -4350,6 +4361,7 @@ impl Config {
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_OPTIONAL_MCP_STARTUP_GRACE),
             model_providers,
+            model_capabilities: cfg.model_capabilities,
             project_doc_max_bytes: cfg.project_doc_max_bytes.unwrap_or(AGENTS_MD_MAX_BYTES),
             project_doc_fallback_filenames: cfg
                 .project_doc_fallback_filenames

@@ -65,6 +65,51 @@ use wiremock::matchers::path;
 const REMOTE_MODEL_SLUG: &str = "codex-test";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn custom_model_capabilities_apply_to_requests_and_context() -> Result<()> {
+    use codex_protocol::model_capabilities::ModelCapabilities;
+    use std::num::NonZeroU32;
+
+    skip_if_no_network!(Ok(()));
+    let server = start_mock_server().await;
+    let response = mount_sse_once(
+        &server,
+        sse(vec![ev_response_created("resp-1"), ev_completed("resp-1")]),
+    )
+    .await;
+    let test = test_codex()
+        .with_model("custom-long-context")
+        .with_config(|config| {
+            config.model_capabilities.insert(
+                "custom-long-context".to_string(),
+                ModelCapabilities {
+                    context_window: NonZeroU32::new(1_000_000),
+                    max_output_tokens: NonZeroU32::new(65_536),
+                    reasoning_effort: Some(ReasoningEffort::High),
+                    ..Default::default()
+                },
+            );
+        })
+        .build_with_auto_env(&server)
+        .await?;
+    test.submit_turn("hello").await?;
+    let body = response.single_request().body_json();
+    assert_eq!(body["model"], "custom-long-context");
+    assert_eq!(body["max_output_tokens"], 65_536);
+    assert_eq!(body["reasoning"]["effort"], "high");
+    let model = test
+        .thread_manager
+        .get_models_manager()
+        .get_model_info(
+            "custom-long-context",
+            &test.config.to_models_manager_config(),
+        )
+        .await;
+    assert_eq!(model.context_window, Some(1_000_000));
+    assert_eq!(model.max_context_window, Some(1_000_000));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn disabled_update_plan_preserves_custom_catalog_instructions() -> Result<()> {
     skip_if_no_network!(Ok(()));
     const INSTRUCTIONS: &str = "## Plan tool\nNever deploy without explicit approval.\n";
@@ -614,6 +659,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         supports_image_detail_original: false,
         context_window: Some(272_000),
         max_context_window: None,
+        max_output_tokens: None,
         auto_compact_token_limit: None,
         comp_hash: None,
         effective_context_window_percent: 95,
@@ -892,6 +938,7 @@ async fn remote_models_apply_legacy_instructions(auth: CodexAuth) -> Result<()> 
         supports_image_detail_original: false,
         context_window: Some(272_000),
         max_context_window: None,
+        max_output_tokens: None,
         auto_compact_token_limit: None,
         comp_hash: None,
         effective_context_window_percent: 95,
@@ -1478,6 +1525,7 @@ fn test_remote_model_with_policy(
         supports_image_detail_original: false,
         context_window: Some(272_000),
         max_context_window: None,
+        max_output_tokens: None,
         auto_compact_token_limit: None,
         comp_hash: None,
         effective_context_window_percent: 95,

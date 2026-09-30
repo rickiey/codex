@@ -771,6 +771,68 @@ async fn get_model_info_tracks_fallback_usage() {
 }
 
 #[tokio::test]
+async fn configured_models_replace_bundled_picker_catalog() {
+    use codex_protocol::model_capabilities::ModelCapabilities;
+    use codex_protocol::openai_models::ReasoningEffort;
+    use codex_protocol::openai_models::ReasoningEffortPreset;
+    use std::collections::HashMap;
+    use std::num::NonZeroU32;
+
+    let config = ModelsManagerConfig {
+        model_capabilities: HashMap::from([
+            (
+                "custom-b".to_string(),
+                ModelCapabilities {
+                    context_window: NonZeroU32::new(1_000_000),
+                    reasoning_effort: Some(ReasoningEffort::High),
+                    supported_reasoning_efforts: vec![
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::High,
+                    ],
+                    ..Default::default()
+                },
+            ),
+            ("custom-a".to_string(), ModelCapabilities::default()),
+        ]),
+        ..Default::default()
+    };
+    let catalog = crate::model_info::catalog_from_capabilities(&config.model_capabilities);
+    let manager = StaticModelsManager::new(/*auth_manager*/ None, catalog);
+    let available = manager
+        .list_models(RefreshStrategy::Offline, DEFAULT_HTTP_CLIENT_FACTORY)
+        .await;
+    assert_eq!(
+        available
+            .iter()
+            .map(|preset| preset.model.as_str())
+            .collect::<Vec<_>>(),
+        vec!["custom-a", "custom-b"]
+    );
+    assert!(available.iter().all(|preset| preset.show_in_picker));
+    assert_eq!(
+        available[1].supported_reasoning_efforts,
+        vec![
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::Low,
+                description: "low".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::Medium,
+                description: "medium".to_string(),
+            },
+            ReasoningEffortPreset {
+                effort: ReasoningEffort::High,
+                description: "high".to_string(),
+            },
+        ]
+    );
+    let model = manager.get_model_info("custom-b", &config).await;
+    assert_eq!(model.context_window, Some(1_000_000));
+    assert_eq!(model.max_context_window, Some(1_000_000));
+}
+
+#[tokio::test]
 async fn get_model_info_applies_long_context_override_to_bundled_gpt_5_6_models() {
     let codex_home = tempdir().expect("temp dir");
     let manager = openai_manager_for_tests(

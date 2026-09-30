@@ -326,6 +326,10 @@ pub struct ConfigToml {
     #[serde(default, deserialize_with = "deserialize_model_providers")]
     pub model_providers: HashMap<String, ModelProviderInfo>,
 
+    /// Per-model Responses capabilities, keyed by the exact model ID.
+    #[serde(default)]
+    pub model_capabilities: HashMap<String, codex_protocol::model_capabilities::ModelCapabilities>,
+
     /// Maximum total bytes of project instruction content across all selected environments.
     #[serde(default = "default_project_doc_max_bytes")]
     pub project_doc_max_bytes: Option<usize>,

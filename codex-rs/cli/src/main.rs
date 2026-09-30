@@ -1060,6 +1060,16 @@ async fn cli_main(
     let root_remote_auth_token_env = agents_options
         .and_then(|options| options.remote.remote_auth_token_env.clone())
         .or(remote.remote_auth_token_env);
+    if root_remote.is_none()
+        && !matches!(&subcommand, Some(Subcommand::Agents(_)))
+        && arg0_paths
+            .codex_self_exe
+            .as_ref()
+            .and_then(|path| path.file_stem())
+            .is_some_and(|name| name == "mycodex")
+    {
+        interactive.no_daemon = true;
+    }
     if let Some(options) = agents_options {
         interactive.cwd = options.cwd.clone().or(interactive.cwd.take());
         interactive.no_alt_screen |= options.no_alt_screen;

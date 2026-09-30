@@ -2563,6 +2563,41 @@
       },
       "type": "object"
     },
+    "ModelCapabilities": {
+      "additionalProperties": false,
+      "description": "User-supplied capabilities for one model ID, independent of the provider catalog.",
+      "properties": {
+        "context_window": {
+          "description": "Context window in tokens. Unknown models retain the 272k fallback if omitted.",
+          "format": "uint32",
+          "minimum": 1.0,
+          "type": "integer"
+        },
+        "max_output_tokens": {
+          "description": "Maximum tokens to request in a single Responses completion.",
+          "format": "uint32",
+          "minimum": 1.0,
+          "type": "integer"
+        },
+        "reasoning_effort": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReasoningEffort"
+            }
+          ],
+          "description": "Default effort, overridden by an explicit turn or global effort setting."
+        },
+        "supported_reasoning_efforts": {
+          "default": [],
+          "description": "Efforts offered in the model picker; omit to offer only the default effort.",
+          "items": {
+            "$ref": "#/definitions/ReasoningEffort"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "ModelProviderAuthInfo": {
       "additionalProperties": false,
       "description": "Configuration for obtaining a provider bearer token from a command.",
@@ -7429,6 +7464,14 @@
         }
       ],
       "description": "Controls whether the auto-compaction limit applies to the full context or only to tokens after the carried prefix in the current compaction window."
+    },
+    "model_capabilities": {
+      "additionalProperties": {
+        "$ref": "#/definitions/ModelCapabilities"
+      },
+      "default": {},
+      "description": "Per-model Responses capabilities, keyed by the exact model ID.",
+      "type": "object"
     },
     "model_catalog_json": {
       "allOf": [

@@ -1,0 +1,12 @@
+---
+source: tui/src/chatwidget/tests/popups_and_settings.rs
+assertion_line: 3347
+expression: "render_bottom_popup(&chat, 80)"
+---
+  Select Model and Effort
+
+
+  1. ag/gemini-flash
+› 2. cx/gpt-6-luna (current)
+
+  enter select · esc back

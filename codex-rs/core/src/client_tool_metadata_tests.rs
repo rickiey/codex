@@ -43,6 +43,7 @@ fn request_with_metadata_and_source(
     output.mark_tool_calls_complete();
     ResponsesApiRequest {
         model: "test".to_string(),
+        max_output_tokens: None,
         instructions: "x".to_string(),
         input: vec![output],
         tools: None,

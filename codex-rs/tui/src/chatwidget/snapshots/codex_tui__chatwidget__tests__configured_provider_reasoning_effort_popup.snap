@@ -1,0 +1,15 @@
+---
+source: tui/src/chatwidget/tests/popups_and_settings.rs
+assertion_line: 3359
+expression: "render_bottom_popup(&chat, 80)"
+---
+  Select Reasoning Level for cx/gpt-6-luna
+
+
+  1. Low              low
+  2. Medium           medium
+› 3. High (default)   high
+  4. Extra high       xhigh
+  5. More reasoning…  Max consumes usage limits faster
+
+  enter default · s session · esc back

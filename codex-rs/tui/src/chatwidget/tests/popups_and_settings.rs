@@ -3310,6 +3310,58 @@ async fn model_selection_popup_snapshot() {
     assert_chatwidget_snapshot!("model_selection_popup", popup);
 }
 
+#[tokio::test]
+async fn configured_provider_model_selection_popup_snapshot() {
+    use codex_protocol::openai_models::ReasoningEffort;
+
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("cx/gpt-6-luna")).await;
+    chat.thread_id = Some(ThreadId::new());
+    let capabilities = std::collections::HashMap::from([
+        (
+            "ag/gemini-flash".to_string(),
+            codex_protocol::model_capabilities::ModelCapabilities::default(),
+        ),
+        (
+            "cx/gpt-6-luna".to_string(),
+            codex_protocol::model_capabilities::ModelCapabilities {
+                reasoning_effort: Some(ReasoningEffort::High),
+                supported_reasoning_efforts: vec![
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                    ReasoningEffort::XHigh,
+                    ReasoningEffort::Max,
+                ],
+                ..Default::default()
+            },
+        ),
+    ]);
+    let models = codex_models_manager::model_info::catalog_from_capabilities(&capabilities)
+        .models
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    chat.model_catalog = Arc::new(ModelCatalog::new(models));
+    chat.open_model_popup();
+
+    assert_chatwidget_snapshot!(
+        "configured_provider_model_selection_popup",
+        render_bottom_popup(&chat, /*width*/ 80)
+    );
+    let selected = chat
+        .model_catalog
+        .try_list_models()
+        .unwrap()
+        .into_iter()
+        .find(|preset| preset.model == "cx/gpt-6-luna")
+        .unwrap();
+    chat.open_reasoning_popup(selected);
+    assert_chatwidget_snapshot!(
+        "configured_provider_reasoning_effort_popup",
+        render_bottom_popup(&chat, /*width*/ 80)
+    );
+}
+
 fn apply_model_list_response(chat: &mut ChatWidget, presets: Vec<ModelPreset>) {
     let request_id = chat.model_popup_request_id.expect("pending model request");
     assert!(chat.on_models_loaded(request_id, Ok(presets)));

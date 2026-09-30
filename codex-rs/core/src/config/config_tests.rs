@@ -992,6 +992,62 @@ async fn load_current_time_reminder_config(config_toml: &str) -> std::io::Result
 }
 
 #[test]
+fn loads_per_model_capabilities() {
+    let config: ConfigToml = toml::from_str(
+        r#"
+[model_capabilities."ag/gemini-3.8-flash-high"]
+context_window = 1048576
+max_output_tokens = 65536
+reasoning_effort = "high"
+supported_reasoning_efforts = ["low", "medium", "high"]
+"#,
+    )
+    .expect("per-model capabilities");
+    assert_eq!(
+        config.model_capabilities["ag/gemini-3.8-flash-high"],
+        codex_protocol::model_capabilities::ModelCapabilities {
+            context_window: std::num::NonZeroU32::new(1_048_576),
+            max_output_tokens: std::num::NonZeroU32::new(65_536),
+            reasoning_effort: Some(codex_protocol::openai_models::ReasoningEffort::High),
+            supported_reasoning_efforts: vec![
+                codex_protocol::openai_models::ReasoningEffort::Low,
+                codex_protocol::openai_models::ReasoningEffort::Medium,
+                codex_protocol::openai_models::ReasoningEffort::High,
+            ],
+        }
+    );
+}
+
+#[tokio::test]
+async fn configured_provider_uses_model_capabilities_as_catalog() -> std::io::Result<()> {
+    let config = load_current_time_reminder_config(
+        r#"
+model_provider = "custom"
+model = "model-b"
+
+[model_providers.custom]
+name = "Custom"
+base_url = "http://localhost:1234/v1"
+
+[model_capabilities.model-b]
+context_window = 1000000
+reasoning_effort = "high"
+
+[model_capabilities.model-a]
+context_window = 200000
+"#,
+    )
+    .await?;
+    assert_eq!(
+        config.model_catalog,
+        Some(codex_models_manager::model_info::catalog_from_capabilities(
+            &config.model_capabilities
+        ))
+    );
+    Ok(())
+}
+
+#[test]
 fn rejects_provider_auth_with_env_key() {
     let err = toml::from_str::<ConfigToml>(
         r#"

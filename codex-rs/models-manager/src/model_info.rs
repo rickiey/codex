@@ -1,13 +1,17 @@
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::ReasoningSummary;
+use codex_protocol::model_capabilities::ModelCapabilities;
 use codex_protocol::openai_models::ConfigShellToolType;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelMessages;
 use codex_protocol::openai_models::ModelVisibility;
+use codex_protocol::openai_models::ModelsResponse;
+use codex_protocol::openai_models::ReasoningEffortPreset;
 use codex_protocol::openai_models::TruncationMode;
 use codex_protocol::openai_models::TruncationPolicyConfig;
 use codex_protocol::openai_models::WebSearchToolType;
 use codex_protocol::openai_models::default_input_modalities;
+use std::collections::HashMap;
 
 use crate::config::ModelsManagerConfig;
 use codex_utils_output_truncation::approx_bytes_for_tokens;
@@ -17,7 +21,20 @@ pub const BASE_INSTRUCTIONS: &str = include_str!("../prompt.md");
 const PERSONALITY_SECTION_HEADER: &str = "# Personality";
 
 pub fn with_config_overrides(mut model: ModelInfo, config: &ModelsManagerConfig) -> ModelInfo {
-    if let Some(context_window) = config.model_context_window {
+    let capabilities = config.model_capabilities.get(&model.slug);
+    let context_window = capabilities
+        .and_then(|capabilities| {
+            capabilities
+                .context_window
+                .map(|value| i64::from(value.get()))
+        })
+        .or(config.model_context_window);
+    if let Some(context_window) = context_window {
+        if model.used_fallback_model_metadata
+            && capabilities.is_some_and(|capabilities| capabilities.context_window.is_some())
+        {
+            model.max_context_window = Some(context_window);
+        }
         model.context_window = Some(
             model
                 .max_context_window
@@ -25,6 +42,14 @@ pub fn with_config_overrides(mut model: ModelInfo, config: &ModelsManagerConfig)
                     context_window.min(max_context_window)
                 }),
         );
+    }
+    if let Some(capabilities) = capabilities {
+        model.max_output_tokens = capabilities
+            .max_output_tokens
+            .map(std::num::NonZeroU32::get);
+        if let Some(effort) = capabilities.reasoning_effort.as_ref() {
+            model.default_reasoning_level = Some(effort.clone());
+        }
     }
     if let Some(auto_compact_token_limit) = config.model_auto_compact_token_limit {
         model.auto_compact_token_limit = Some(auto_compact_token_limit);
@@ -98,6 +123,51 @@ fn is_h1_heading(line: &str) -> bool {
 /// Build a minimal fallback model descriptor for missing/unknown slugs.
 pub fn model_info_from_slug(slug: &str) -> ModelInfo {
     warn!("Unknown model {slug} is used. This will use fallback model metadata.");
+    fallback_model_info(slug)
+}
+
+/// Construct a picker catalog from explicitly configured model IDs.
+pub fn catalog_from_capabilities(
+    capabilities: &HashMap<String, ModelCapabilities>,
+) -> ModelsResponse {
+    let mut models = capabilities
+        .iter()
+        .map(|(slug, capabilities)| {
+            let mut model = fallback_model_info(slug);
+            model.visibility = ModelVisibility::List;
+            if let Some(context_window) = capabilities.context_window {
+                let context_window = i64::from(context_window.get());
+                model.context_window = Some(context_window);
+                model.max_context_window = Some(context_window);
+            }
+            let efforts = if capabilities.supported_reasoning_efforts.is_empty() {
+                capabilities
+                    .reasoning_effort
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                capabilities.supported_reasoning_efforts.clone()
+            };
+            model.default_reasoning_level = capabilities
+                .reasoning_effort
+                .clone()
+                .or_else(|| efforts.first().cloned());
+            model.supported_reasoning_levels = efforts
+                .into_iter()
+                .map(|effort| ReasoningEffortPreset {
+                    description: effort.to_string(),
+                    effort,
+                })
+                .collect();
+            model
+        })
+        .collect::<Vec<_>>();
+    models.sort_by(|a, b| a.slug.cmp(&b.slug));
+    ModelsResponse { models }
+}
+
+fn fallback_model_info(slug: &str) -> ModelInfo {
     ModelInfo {
         slug: slug.to_string(),
         display_name: slug.to_string(),
@@ -128,6 +198,7 @@ pub fn model_info_from_slug(slug: &str) -> ModelInfo {
         supports_image_detail_original: false,
         context_window: Some(272_000),
         max_context_window: Some(272_000),
+        max_output_tokens: None,
         auto_compact_token_limit: None,
         comp_hash: None,
         effective_context_window_percent: 95,

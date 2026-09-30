@@ -249,6 +249,63 @@ fn unknown_model_uses_builtin_instruction_template() {
 }
 
 #[test]
+fn per_model_capabilities_override_only_the_selected_model() {
+    use codex_protocol::model_capabilities::ModelCapabilities;
+    use codex_protocol::openai_models::ReasoningEffort;
+    use std::collections::HashMap;
+    use std::num::NonZeroU32;
+
+    let original = model_info_from_slug("custom-model");
+    let config = ModelsManagerConfig {
+        model_capabilities: HashMap::from([(
+            "custom-model".to_string(),
+            ModelCapabilities {
+                context_window: NonZeroU32::new(1_000_000),
+                max_output_tokens: NonZeroU32::new(65_536),
+                reasoning_effort: Some(ReasoningEffort::High),
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+    let updated = with_config_overrides(original.clone(), &config);
+    let mut expected = original.clone();
+    expected.context_window = Some(1_000_000);
+    expected.max_context_window = Some(1_000_000);
+    expected.max_output_tokens = Some(65_536);
+    expected.default_reasoning_level = Some(ReasoningEffort::High);
+    assert_eq!(updated, expected);
+    assert_eq!(
+        with_config_overrides(original, &ModelsManagerConfig::default()).context_window,
+        Some(272_000)
+    );
+}
+
+#[test]
+fn per_model_context_window_respects_known_model_cap() {
+    use codex_protocol::model_capabilities::ModelCapabilities;
+    use std::collections::HashMap;
+    use std::num::NonZeroU32;
+
+    let mut model = model_info_from_slug("known-model");
+    model.used_fallback_model_metadata = false;
+    model.max_context_window = Some(400_000);
+    let config = ModelsManagerConfig {
+        model_capabilities: HashMap::from([(
+            model.slug.clone(),
+            ModelCapabilities {
+                context_window: NonZeroU32::new(1_000_000),
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+    let updated = with_config_overrides(model.clone(), &config);
+    model.context_window = Some(400_000);
+    assert_eq!(updated, model);
+}
+
+#[test]
 fn model_context_window_override_clamps_to_max_context_window() {
     let mut model = model_info_from_slug("unknown-model");
     model.context_window = Some(273_000);
